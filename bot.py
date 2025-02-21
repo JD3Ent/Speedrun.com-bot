@@ -54,6 +54,75 @@ async def fetch_categories(session, game_id):
     CATEGORY_CACHE[game_id] = categories
     return categories
 
+# Function to fetch all runners for a game (cached)
+async def fetch_runners(session, game_id):
+    if game_id in RUNNERS_CACHE:
+        return RUNNERS_CACHE[game_id]
+
+    url = f"{SPEEDRUN_API_URL}/leaderboards/{game_id}/categories"
+    data = await fetch_with_rate_limit(session, url)
+
+    if "data" not in data:
+        return None
+
+    categories = data["data"]
+    runner_ids = set()
+
+    for category in categories:
+        leaderboard_url = f"{SPEEDRUN_API_URL}/leaderboards/{game_id}/category/{category['id']}"
+        leaderboard_data = await fetch_with_rate_limit(session, leaderboard_url)
+
+        if "data" in leaderboard_data:
+            runs = leaderboard_data["data"]["runs"]
+            for run in runs:
+                for player in run["run"]["players"]:
+                    if player["rel"] == "user":
+                        runner_ids.add(player["id"])
+
+    runners = []
+    for runner_id in runner_ids:
+        user_url = f"{SPEEDRUN_API_URL}/users/{runner_id}"
+        user_data = await fetch_with_rate_limit(session, user_url)
+
+        if "data" in user_data:
+            runners.append(user_data["data"]["names"]["international"])
+
+    RUNNERS_CACHE[game_id] = runners  # Cache runners
+    return runners
+
+# Function to fetch a specific runner's profile
+async def fetch_runner_profile(session, runner_name):
+    url = f"{SPEEDRUN_API_URL}/users?lookup={runner_name}"
+    data = await fetch_with_rate_limit(session, url)
+
+    if not data.get("data"):
+        return None
+
+    user_data = data["data"][0]
+    user_id = user_data["id"]
+    user_url = user_data["weblink"]
+
+    # Fetch the runs for this runner
+    runs_url = f"{SPEEDRUN_API_URL}/runs?user={user_id}"
+    runs_data = await fetch_with_rate_limit(session, runs_url)
+
+    runs = runs_data.get("data", [])
+    run_list = []
+
+    for run in runs:
+        game_id = run["game"]
+        game_name = next((name for name, gid in GAME_IDS.items() if gid == game_id), "Unknown Game")
+        category_id = run["category"]
+        category_data = await fetch_with_rate_limit(session, f"{SPEEDRUN_API_URL}/categories/{category_id}")
+
+        category_name = category_data.get("data", {}).get("name", "Unknown Category")
+        time = run["times"]["primary_t"]
+        video = run.get("videos", {}).get("links", [{"uri": "No video"}])[0]["uri"]
+
+        run_list.append(f"🏁 **{game_name} - {category_name}**\n⏱️ Time: {time}\n🎥 Video: {video}\n")
+
+    return user_data["names"]["international"], user_url, run_list
+
 # Command to list available categories for a game
 @bot.command()
 async def categories(ctx, game: str):
@@ -72,7 +141,24 @@ async def categories(ctx, game: str):
     category_list = "\n".join([f"🔹 {name}" for name in categories.keys()])
     await ctx.send(f"**Available Categories for {game.upper()}**:\n{category_list}")
 
-# Command to fetch WR or Top 5 runs (Rate-limiting safe)
+# Command to list all runners for a game
+@bot.command()
+async def runners(ctx, game: str):
+    game_id = GAME_IDS.get(game.lower())
+    if not game_id:
+        await ctx.send("❌ Invalid game name! Use: mc3remix, mc3dub, mc2, mc1, mcla, or mcla_remix")
+        return
+
+    async with aiohttp.ClientSession() as session:
+        runners = await fetch_runners(session, game_id)
+
+    if not runners:
+        await ctx.send("❌ No runners found for this game.")
+        return
+
+    await ctx.send(f"🏁 **Speedrunners for {game.upper()}**:\n{', '.join(runners)}\n\nTotal Runners: {len(runners)}")
+
+# Command to fetch WR or Top 5 runs
 @bot.command()
 async def speedrun(ctx, category: str, game: str, top: str = "1"):
     game_id = GAME_IDS.get(game.lower())
@@ -108,22 +194,5 @@ async def speedrun(ctx, category: str, game: str, top: str = "1"):
 
         await ctx.send(message)
 
-# Command to test if bot is online
-@bot.command()
-async def ping(ctx):
-    await ctx.send("🏓 Pong! Bot is running!")
-
-# Auto-reconnect logic to prevent bot crashes
-async def reconnect_bot():
-    while True:
-        try:
-            await bot.start(TOKEN)
-        except discord.HTTPException as e:
-            if e.status == 429:
-                print("Rate limit exceeded. Waiting before retrying...")
-                await asyncio.sleep(30)  # Wait before reconnecting
-            else:
-                raise
-
-# Run bot with auto-reconnect
-asyncio.run(reconnect_bot())
+# Run the bot
+bot.run(TOKEN)
