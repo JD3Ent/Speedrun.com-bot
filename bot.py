@@ -1,9 +1,10 @@
-import discord
-from discord.ext import commands
-import requests
 import subprocess
 import sys
 import os
+import discord
+from discord.ext import commands
+import requests
+from dotenv import load_dotenv
 
 # Auto-install dependencies from requirements.txt
 def install_requirements():
@@ -12,7 +13,11 @@ def install_requirements():
     else:
         print("No requirements.txt found. Skipping dependency installation.")
 
-install_requirements()
+install_requirements()  # Install missing packages before running the bot
+
+# Load Bot Token Securely
+load_dotenv()
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
 # Speedrun.com API Base URL
 SPEEDRUN_API_URL = "https://www.speedrun.com/api/v1"
@@ -172,5 +177,5 @@ async def runner(ctx, runner_name: str):
 
     await ctx.send(f"🏆 **{name}'s Profile**: {url}\n\n{run_details}")
 
-# Run the bot
-bot.run("YOUR_DISCORD_BOT_TOKEN")
+# Run the bot (only after everything is set up)
+bot.run(TOKEN)
