@@ -1,6 +1,18 @@
 import discord
 from discord.ext import commands
 import requests
+import subprocess
+import sys
+import os
+
+# Auto-install dependencies from requirements.txt
+def install_requirements():
+    if os.path.exists("requirements.txt"):
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    else:
+        print("No requirements.txt found. Skipping dependency installation.")
+
+install_requirements()
 
 # Speedrun.com API Base URL
 SPEEDRUN_API_URL = "https://www.speedrun.com/api/v1"
